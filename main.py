@@ -1,6 +1,8 @@
 import asyncio
 import json
 import argparse
+import statistics
+from collections import deque
 from typing import Dict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -27,8 +29,27 @@ class MuseState(BaseModel):
 
 # Global state
 current_state = MuseState()
+history = deque(maxlen=600)  # 60 seconds of history at 10Hz
 connected_data_websockets: List[WebSocket] = []
 connected_raw_websockets: List[WebSocket] = []
+
+# --- Trend Analysis ---
+
+def get_trend(band_name: str) -> str:
+    """
+    Analyzes the last 10 seconds of history to determine the trend.
+    """
+    if len(history) < 100:
+        return "Stable (Initializing)"
+    
+    recent = [getattr(s, band_name) for s in list(history)[-100:]]
+    first_half = statistics.mean(recent[:50])
+    second_half = statistics.mean(recent[50:])
+    
+    diff = second_half - first_half
+    if diff > 0.05: return "Increasing"
+    if diff < -0.05: return "Decreasing"
+    return "Stable"
 
 # --- Cognitive State Logic ---
 
@@ -79,6 +100,9 @@ def clench_handler(address, *args):
 
 async def broadcast_state():
     while True:
+        # Append current state to history
+        history.append(current_state.model_copy())
+        
         if connected_data_websockets:
             data = current_state.model_dump_json()
             for ws in connected_data_websockets:
@@ -178,9 +202,19 @@ async def status():
 
 @app.post("/ask-ollama")
 async def ask_ollama(prompt_extra: str = ""):
-    system_prompt = f"The user's current cognitive state is: {current_state.cognitive_state}. "
-    system_prompt += f"Brainwave levels - Alpha: {current_state.alpha:.2f}, Beta: {current_state.beta:.2f}, Theta: {current_state.theta:.2f}. "
-    system_prompt += "Provide brief, supportive biofeedback or a quick exercise suggestion based on this state."
+    trends = {
+        "Alpha": get_trend("alpha"),
+        "Beta": get_trend("beta"),
+        "Theta": get_trend("theta")
+    }
+    
+    system_prompt = f"The user's current cognitive state is: {current_state.cognitive_state}.\n"
+    system_prompt += f"Recent Trends (last 60s):\n"
+    system_prompt += f"- Alpha (Calm): {trends['Alpha']}\n"
+    system_prompt += f"- Beta (Focus): {trends['Beta']}\n"
+    system_prompt += f"- Theta (Meditation): {trends['Theta']}\n"
+    system_prompt += "\nBased on these trends, provide a proactive biofeedback suggestion. "
+    system_prompt += "If focus is decreasing, suggest a quick way to re-engage. If calm is increasing, reinforce the behavior."
     
     response = ollama.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
     return {"response": response['response']}
