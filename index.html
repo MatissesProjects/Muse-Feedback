@@ -82,6 +82,14 @@
         </div>
 
         <div class="card">
+            <h2>Audio Feedback</h2>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <button id="tts-toggle" onclick="toggleAudio()" style="background: #94a3b8;">Audio: OFF</button>
+                <p style="font-size: 0.8rem; color: #94a3b8;">Read AI insights aloud (recommended for meditation).</p>
+            </div>
+        </div>
+
+        <div class="card">
             <h2>Artifacts</h2>
             <div style="display: flex; gap: 1rem;">
                 <div id="blink-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.3s;">Blink</div>
@@ -198,6 +206,29 @@
             }, 300);
         }
 
+        let audioEnabled = false;
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            const btn = document.getElementById('tts-toggle');
+            btn.innerText = `Audio: ${audioEnabled ? 'ON' : 'OFF'}`;
+            btn.style.background = audioEnabled ? '#4ade80' : '#94a3b8';
+            btn.style.color = audioEnabled ? '#0f172a' : '#f8fafc';
+            
+            if (audioEnabled) {
+                const welcome = new SpeechSynthesisUtterance("Audio feedback enabled.");
+                window.speechSynthesis.speak(welcome);
+            }
+        }
+
+        function speak(text) {
+            if (!audioEnabled) return;
+            window.speechSynthesis.cancel(); // Stop current speech
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.9; // Slightly slower for clarity
+            window.speechSynthesis.speak(utterance);
+        }
+
         async function toggleRecording() {
             const btn = document.getElementById('record-btn');
             const statusDiv = document.getElementById('recording-status');
@@ -232,6 +263,7 @@
                 const response = await fetch('/ask-ollama', { method: 'POST' });
                 const data = await response.json();
                 respDiv.innerText = data.response;
+                speak(data.response);
             } catch (e) {
                 respDiv.innerText = "Error contacting Ollama service.";
             } finally {
