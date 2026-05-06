@@ -26,7 +26,8 @@ class MuseState(BaseModel):
 
 # Global state
 current_state = MuseState()
-connected_websockets: List[WebSocket] = []
+connected_data_websockets: List[WebSocket] = []
+connected_raw_websockets: List[WebSocket] = []
 
 # --- Cognitive State Logic ---
 
@@ -80,13 +81,22 @@ def clench_handler(address, *args):
 
 async def broadcast_state():
     while True:
-        if connected_websockets:
+        if connected_data_websockets:
             data = current_state.model_dump_json()
-            for ws in connected_websockets:
+            for ws in connected_data_websockets:
                 try:
                     await ws.send_text(data)
                 except:
                     pass
+        
+        if connected_raw_websockets:
+            raw_data = json.dumps({"eeg": current_state.eeg, "ts": asyncio.get_event_loop().time()})
+            for ws in connected_raw_websockets:
+                try:
+                    await ws.send_text(raw_data)
+                except:
+                    pass
+                    
         await asyncio.sleep(0.1)  # 10Hz broadcast
 
 # --- FastAPI Routes ---
@@ -153,12 +163,6 @@ async def ask_ollama(prompt_extra: str = ""):
     system_prompt += "Provide brief, supportive biofeedback or a quick exercise suggestion based on this state."
     
     response = ollama.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
-    return {"response": response['response']}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-a.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
     return {"response": response['response']}
 
 if __name__ == "__main__":
