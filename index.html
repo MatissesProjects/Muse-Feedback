@@ -72,6 +72,16 @@
         </div>
 
         <div class="card">
+            <h2>Specialized Metrics</h2>
+            <div id="crossover-status" class="state-highlight" style="font-size: 1.5rem; color: #94a3b8;">Alpha-Theta: Baseline</div>
+            <div class="bar-container" style="margin-top: 1rem;">
+                <div class="bar-label"><span>Theta/Alpha Ratio</span><span id="ta-ratio-val">0.00</span></div>
+                <div class="bar-bg"><div id="ta-ratio-bar" class="bar-fill" style="background: #c084fc;"></div></div>
+            </div>
+            <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.5rem;">Ratio > 1.0 indicates deep 'crossover' state.</p>
+        </div>
+
+        <div class="card">
             <h2>Baseline Comparison</h2>
             <div style="font-size: 0.9rem; color: #94a3b8;">
                 <div class="bar-label"><span>Alpha Diff</span><span id="alpha-diff">0.0%</span></div>
@@ -173,6 +183,20 @@
             updateDiff('alpha', data.alpha);
             updateDiff('beta', data.beta);
             updateDiff('theta', data.theta);
+
+            // Update Ratio Bar
+            const ratioVal = data.theta_alpha_ratio || 0;
+            document.getElementById('ta-ratio-val').innerText = ratioVal.toFixed(2);
+            document.getElementById('ta-ratio-bar').style.width = `${Math.min(ratioVal * 50, 100)}%`;
+            
+            const crossoverEl = document.getElementById('crossover-status');
+            if (ratioVal > 1.0) {
+                crossoverEl.innerText = "Alpha-Theta: CROSSOVER!";
+                crossoverEl.style.color = '#c084fc';
+            } else {
+                crossoverEl.innerText = "Alpha-Theta: Baseline";
+                crossoverEl.style.color = '#94a3b8';
+            }
             
             const now = new Date().toLocaleTimeString();
             chart.data.labels.push(now);

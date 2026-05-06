@@ -29,6 +29,7 @@ class MuseState(BaseModel):
     blink: int = 0
     jaw_clench: int = 0
     cognitive_state: str = "Unknown"
+    theta_alpha_ratio: float = 0.0
 
 # Global state
 current_state = MuseState()
@@ -106,8 +107,14 @@ def update_cognitive_state():
     Theta: Deep relaxation/Meditation (4-8Hz)
     Gamma: Peak focus/Insight (30-44Hz)
     """
-    # Priority: Gamma (High Focus) > Beta (Focused) > Alpha (Relaxed) > Theta (Deeply Relaxed)
-    if current_state.gamma > 0.6 and current_state.gamma > current_state.beta:
+    # Calculate Ratio (Theta / Alpha)
+    # A ratio > 1.0 indicates 'crossover' into deep hypnagogia
+    current_state.theta_alpha_ratio = current_state.theta / current_state.alpha if current_state.alpha > 0 else 0
+    
+    # Priority: Alpha-Theta Crossover > Gamma (Peak) > Beta (Focused) > Alpha (Relaxed)
+    if current_state.theta_alpha_ratio > 1.0 and current_state.theta > 0.5:
+        current_state.cognitive_state = "Deep Meditation (Crossover)"
+    elif current_state.gamma > 0.6 and current_state.gamma > current_state.beta:
         current_state.cognitive_state = "Peak Focus (Flow)"
     elif current_state.beta > current_state.alpha and current_state.beta > 0.4:
         current_state.cognitive_state = "Focused / Alert"
