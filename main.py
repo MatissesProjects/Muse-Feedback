@@ -123,12 +123,22 @@ async def get():
 @app.websocket("/ws/data")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    connected_websockets.append(websocket)
+    connected_data_websockets.append(websocket)
     try:
         while True:
-            await websocket.receive_text() # Keep alive
+            await websocket.receive_text() 
     except WebSocketDisconnect:
-        connected_websockets.remove(websocket)
+        connected_data_websockets.remove(websocket)
+
+@app.websocket("/ws/raw")
+async def websocket_raw_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    connected_raw_websockets.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        connected_raw_websockets.remove(websocket)
 
 @app.get("/status")
 async def status():
@@ -143,6 +153,12 @@ async def ask_ollama(prompt_extra: str = ""):
     system_prompt += "Provide brief, supportive biofeedback or a quick exercise suggestion based on this state."
     
     response = ollama.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
+    return {"response": response['response']}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+a.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
     return {"response": response['response']}
 
 if __name__ == "__main__":
