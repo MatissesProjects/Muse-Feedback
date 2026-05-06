@@ -1,5 +1,6 @@
 import asyncio
 import json
+import argparse
 from typing import Dict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -39,9 +40,6 @@ def update_cognitive_state():
     Theta: Deep relaxation/Meditation (4-8Hz)
     Gamma: Peak focus/Insight (30-44Hz)
     """
-    # Simple relative comparison for the prototype
-    # Values are typically in Bels (logarithmic), so difference of 0.1 is significant
-    
     # Priority: Gamma (High Focus) > Beta (Focused) > Alpha (Relaxed) > Theta (Deeply Relaxed)
     if current_state.gamma > 0.6 and current_state.gamma > current_state.beta:
         current_state.cognitive_state = "Peak Focus (Flow)"
@@ -99,6 +97,24 @@ async def broadcast_state():
                     
         await asyncio.sleep(0.1)  # 10Hz broadcast
 
+# --- Mock Data Simulator (Internal) ---
+
+async def internal_simulator():
+    """
+    Internal task to simulate Muse data if --mock is used.
+    """
+    import random
+    print("!!! INTERNAL SIMULATOR ACTIVE !!!")
+    while True:
+        current_state.alpha = max(0, min(1.5, current_state.alpha + random.uniform(-0.1, 0.1)))
+        current_state.beta = max(0, min(1.5, current_state.beta + random.uniform(-0.1, 0.1)))
+        current_state.theta = max(0, min(1.5, current_state.theta + random.uniform(-0.1, 0.1)))
+        current_state.delta = max(0, min(1.5, current_state.delta + random.uniform(-0.1, 0.1)))
+        current_state.gamma = max(0, min(1.5, current_state.gamma + random.uniform(-0.05, 0.05)))
+        current_state.horseshoe = [1.0, 1.0, 1.0, 1.0]
+        update_cognitive_state()
+        await asyncio.sleep(0.1)
+
 # --- FastAPI Routes ---
 
 @app.on_event("startup")
@@ -117,14 +133,18 @@ async def startup_event():
 
     # Start OSC Server
     ip = "0.0.0.0"
-    port = 5000
-    server = AsyncIOOSCUDPServer((ip, port), dispatcher, asyncio.get_event_loop())
+    port_osc = 5000
+    server = AsyncIOOSCUDPServer((ip, port_osc), dispatcher, asyncio.get_event_loop())
     transport, protocol = await server.create_serve_endpoint()
     
     # Start Broadcast Task
     asyncio.create_task(broadcast_state())
     
-    print(f"OSC Server listening on {ip}:{port}")
+    # Start Internal Simulator if mock mode
+    if getattr(app.state, "mock_mode", False):
+        asyncio.create_task(internal_simulator())
+    
+    print(f"OSC Server listening on {ip}:{port_osc}")
 
 @app.get("/")
 async def get():
@@ -166,5 +186,12 @@ async def ask_ollama(prompt_extra: str = ""):
     return {"response": response['response']}
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Muse Feedback Monitor Backend")
+    parser.add_argument("--mock", action="store_true", help="Run with internal mock data simulator")
+    parser.add_argument("--port", type=int, default=8000, help="Web server port")
+    args = parser.parse_args()
+    
+    app.state.mock_mode = args.mock
+    
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=args.port)
