@@ -97,6 +97,16 @@
             </div>
             <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 1rem;">Tip: Double-clench your jaw to trigger AI feedback hands-free.</p>
         </div>
+
+        <div class="card" style="grid-column: span 3;">
+            <h2>Session History</h2>
+            <div id="session-list" style="max-height: 150px; overflow-y: auto; margin-bottom: 1rem; border: 1px solid #334155; padding: 0.5rem; border-radius: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                Loading sessions...
+            </div>
+            <div class="chart-container" style="height: 250px;">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -251,6 +261,48 @@
                 }
             } catch (e) {
                 alert('Error toggling recording.');
+            }
+        }
+
+        const historyCtx = document.getElementById('historyChart').getContext('2d');
+        const historyChart = new Chart(historyCtx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'Alpha', borderColor: '#38bdf8', data: [], tension: 0.1, pointRadius: 0 },
+                { label: 'Beta', borderColor: '#fb7185', data: [], tension: 0.1, pointRadius: 0 },
+                { label: 'Theta', borderColor: '#a78bfa', data: [], tension: 0.1, pointRadius: 0 }
+            ]},
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { min: 0, max: 2 } }, plugins: { legend: { labels: { color: '#f8fafc' } } } }
+        });
+
+        async function loadSessionList() {
+            try {
+                const response = await fetch('/sessions');
+                const files = await response.json();
+                const list = document.getElementById('session-list');
+                list.innerHTML = files.map(f => `
+                    <div class="session-item" onclick="viewSession('${f}')" style="cursor: pointer; background: #1e293b; padding: 0.5rem; border-radius: 0.25rem; border: 1px solid #334155;">
+                        ${f}
+                    </div>
+                `).join('') || "No sessions found.";
+            } catch (e) {
+                document.getElementById('session-list').innerText = "Error loading sessions.";
+            }
+        }
+        loadSessionList();
+
+        async function viewSession(filename) {
+            try {
+                const response = await fetch(`/sessions/${filename}`);
+                const data = await response.json();
+                
+                historyChart.data.labels = data.map(d => d.timestamp);
+                historyChart.data.datasets[0].data = data.map(d => d.alpha);
+                historyChart.data.datasets[1].data = data.map(d => d.beta);
+                historyChart.data.datasets[2].data = data.map(d => d.theta);
+                historyChart.update();
+            } catch (e) {
+                alert("Error loading session data.");
             }
         }
 

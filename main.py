@@ -353,6 +353,29 @@ async def ask_ollama(prompt_extra: str = ""):
     except Exception as e:
         return {"response": f"Error contacting Ollama at {app.state.ollama_host}: {str(e)}"}
 
+@app.get("/sessions")
+async def list_sessions():
+    if not os.path.exists("sessions"):
+        return []
+    files = [f for f in os.listdir("sessions") if f.endswith(".csv")]
+    return sorted(files, reverse=True)
+
+@app.get("/sessions/{filename}")
+async def get_session(filename: str):
+    path = os.path.join("sessions", filename)
+    if not os.path.exists(path):
+        return {"error": "file not found"}
+    
+    data = []
+    with open(path, "r") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Parse numeric values back
+            for key in ['alpha', 'beta', 'theta', 'delta', 'gamma']:
+                row[key] = float(row[key])
+            data.append(row)
+    return data
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Muse Feedback Monitor Backend")
     parser.add_argument("--mock", action="store_true", help="Run with internal mock data simulator")
