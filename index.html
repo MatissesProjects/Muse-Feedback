@@ -33,6 +33,12 @@
         </div>
 
         <div class="card">
+            <h2>Session Management</h2>
+            <div id="recording-status" style="margin-bottom: 1rem; color: #94a3b8;">Status: Not Recording</div>
+            <button id="record-btn" onclick="toggleRecording()">Start Recording</button>
+        </div>
+
+        <div class="card">
             <h2>Ollama Biofeedback</h2>
             <button onclick="askOllama()">Get Insight</button>
             <div id="ollama-response">Click for biofeedback based on your current state.</div>
@@ -125,6 +131,30 @@
             const percentage = Math.min(Math.max(val * 50, 0), 100);
             document.getElementById(`${id}-bar`).style.width = `${percentage}%`;
             document.getElementById(`${id}-val`).innerText = val.toFixed(2);
+        }
+
+        async function toggleRecording() {
+            const btn = document.getElementById('record-btn');
+            const statusDiv = document.getElementById('recording-status');
+            const isRecording = btn.innerText === 'Stop Recording';
+            
+            const endpoint = isRecording ? '/recording/stop' : '/recording/start';
+            try {
+                const response = await fetch(endpoint, { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.status.includes('started')) {
+                    btn.innerText = 'Stop Recording';
+                    btn.style.background = '#fb7185';
+                    statusDiv.innerText = `Recording: ${data.file}`;
+                } else {
+                    btn.innerText = 'Start Recording';
+                    btn.style.background = '#38bdf8';
+                    statusDiv.innerText = 'Status: Not Recording';
+                }
+            } catch (e) {
+                alert('Error toggling recording.');
+            }
         }
 
         async function askOllama() {

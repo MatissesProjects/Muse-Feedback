@@ -2,6 +2,9 @@ import asyncio
 import json
 import argparse
 import statistics
+import csv
+import os
+from datetime import datetime
 from collections import deque
 from typing import Dict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -32,6 +35,12 @@ current_state = MuseState()
 history = deque(maxlen=600)  # 60 seconds of history at 10Hz
 connected_data_websockets: List[WebSocket] = []
 connected_raw_websockets: List[WebSocket] = []
+
+# Recording state
+recording_active = False
+recording_file: Optional[str] = None
+csv_writer = None
+file_handle = None
 
 # --- Trend Analysis ---
 
@@ -99,9 +108,20 @@ def clench_handler(address, *args):
 # --- WebSocket Broadcasting ---
 
 async def broadcast_state():
+    global csv_writer, file_handle
     while True:
         # Append current state to history
         history.append(current_state.model_copy())
+        
+        # Log to CSV if recording
+        if recording_active and csv_writer:
+            row = current_state.model_dump()
+            row['timestamp'] = datetime.now().isoformat()
+            # Convert lists to strings for CSV
+            row['eeg'] = str(row['eeg'])
+            row['horseshoe'] = str(row['horseshoe'])
+            csv_writer.writerow(row)
+            file_handle.flush()
         
         if connected_data_websockets:
             data = current_state.model_dump_json()
@@ -196,7 +216,39 @@ async def websocket_raw_endpoint(websocket: WebSocket):
 
 @app.get("/status")
 async def status():
-    return current_state
+    return {**current_state.model_dump(), "recording": recording_active}
+
+@app.post("/recording/start")
+async def start_recording():
+    global recording_active, recording_file, csv_writer, file_handle
+    if recording_active:
+        return {"status": "already recording"}
+    
+    os.makedirs("sessions", exist_ok=True)
+    filename = f"sessions/muse_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    recording_file = filename
+    file_handle = open(filename, "w", newline="")
+    
+    fieldnames = list(current_state.model_dump().keys()) + ["timestamp"]
+    csv_writer = csv.DictWriter(file_handle, fieldnames=fieldnames)
+    csv_writer.writeheader()
+    
+    recording_active = True
+    print(f"Started recording to {filename}")
+    return {"status": "recording started", "file": filename}
+
+@app.post("/recording/stop")
+async def stop_recording():
+    global recording_active, csv_writer, file_handle
+    if not recording_active:
+        return {"status": "not recording"}
+    
+    recording_active = False
+    file_handle.close()
+    file_handle = None
+    csv_writer = None
+    print("Stopped recording")
+    return {"status": "recording stopped"}
 
 # --- Ollama Integration ---
 
