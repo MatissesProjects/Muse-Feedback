@@ -70,6 +70,14 @@
                 <div class="bar-bg"><div id="theta-bar" class="bar-fill" style="background: #a78bfa;"></div></div>
             </div>
         </div>
+        <div class="card">
+            <h2>Artifacts</h2>
+            <div style="display: flex; gap: 1rem;">
+                <div id="blink-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.3s;">Blink</div>
+                <div id="clench-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.3s;">Clench</div>
+            </div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 1rem;">Tip: Double-clench your jaw to trigger AI feedback hands-free.</p>
+        </div>
     </div>
 
     <script>
@@ -100,8 +108,26 @@
         const maxPoints = 100;
 
         ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
+            const msg = JSON.parse(event.data);
+
+            // Handle Notifications (Artifact Triggers)
+            if (msg.type === 'notification') {
+                const statusDiv = document.getElementById('cognitive-state');
+                const oldColor = statusDiv.style.color;
+                statusDiv.innerText = msg.message;
+                statusDiv.style.color = '#4ade80';
+                setTimeout(() => { statusDiv.style.color = oldColor; }, 2000);
+                askOllama();
+                return;
+            }
+
+            const data = msg;
             document.getElementById('cognitive-state').innerText = data.cognitive_state;
+
+            // Artifact Indicators
+            if (data.blink) flashIndicator('blink-indicator');
+            if (data.jaw_clench) flashIndicator('clench-indicator');
+
             
             // Update Bars
             updateBar('alpha', data.alpha);
@@ -131,6 +157,16 @@
             const percentage = Math.min(Math.max(val * 50, 0), 100);
             document.getElementById(`${id}-bar`).style.width = `${percentage}%`;
             document.getElementById(`${id}-val`).innerText = val.toFixed(2);
+        }
+
+        function flashIndicator(id) {
+            const el = document.getElementById(id);
+            el.style.background = '#38bdf8';
+            el.style.color = '#0f172a';
+            setTimeout(() => { 
+                el.style.background = '#334155'; 
+                el.style.color = '#f8fafc';
+            }, 300);
         }
 
         async function toggleRecording() {

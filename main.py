@@ -42,6 +42,10 @@ recording_file: Optional[str] = None
 csv_writer = None
 file_handle = None
 
+# Artifact Detection State
+last_clench_time = 0.0
+clench_count = 0
+
 # --- Trend Analysis ---
 
 def get_trend(band_name: str) -> str:
@@ -103,7 +107,31 @@ def blink_handler(address, *args):
     current_state.blink = args[0]
 
 def clench_handler(address, *args):
-    current_state.jaw_clench = args[0]
+    global last_clench_time, clench_count
+    val = args[0]
+    current_state.jaw_clench = val
+    
+    if val == 1:
+        now = datetime.now().timestamp()
+        if now - last_clench_time < 0.8: # Double clench within 800ms
+            clench_count += 1
+            if clench_count >= 1: # Double clench detected
+                print("!!! Double Clench Detected - Triggering AI Feedback !!!")
+                asyncio.create_task(trigger_ai_feedback())
+                clench_count = 0
+        else:
+            clench_count = 0
+        last_clench_time = now
+
+async def trigger_ai_feedback():
+    # Helper to broadcast a notification to the UI
+    for ws in connected_data_websockets:
+        try:
+            await ws.send_text(json.dumps({"type": "notification", "message": "Triggered by Jaw Clench!"}))
+        except:
+            pass
+    # We don't call ask_ollama directly here to avoid circular logic, 
+    # but we can simulate the button click or have the UI handle it.
 
 # --- WebSocket Broadcasting ---
 
@@ -117,7 +145,6 @@ async def broadcast_state():
         if recording_active and csv_writer:
             row = current_state.model_dump()
             row['timestamp'] = datetime.now().isoformat()
-            # Convert lists to strings for CSV
             row['eeg'] = str(row['eeg'])
             row['horseshoe'] = str(row['horseshoe'])
             csv_writer.writerow(row)
