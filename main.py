@@ -46,6 +46,32 @@ file_handle = None
 last_clench_time = 0.0
 clench_count = 0
 
+# Baseline State
+baselines = {"alpha": 0.5, "beta": 0.5, "theta": 0.5, "gamma": 0.3}
+BASELINE_FILE = "baselines.json"
+
+def load_baselines():
+    global baselines
+    if os.path.exists(BASELINE_FILE):
+        with open(BASELINE_FILE, "r") as f:
+            baselines = json.load(f)
+
+def save_baselines():
+    # Calculate new baseline based on history if available
+    if len(history) > 100:
+        new_baselines = {
+            "alpha": statistics.mean([s.alpha for s in history]),
+            "beta": statistics.mean([s.beta for s in history]),
+            "theta": statistics.mean([s.theta for s in history]),
+            "gamma": statistics.mean([s.gamma for s in history])
+        }
+        # Weighted average (90% old, 10% new)
+        for k in baselines:
+            baselines[k] = (baselines[k] * 0.9) + (new_baselines[k] * 0.1)
+        
+        with open(BASELINE_FILE, "w") as f:
+            json.dump(baselines, f)
+
 # --- Trend Analysis ---
 
 def get_trend(band_name: str) -> str:
@@ -130,8 +156,6 @@ async def trigger_ai_feedback():
             await ws.send_text(json.dumps({"type": "notification", "message": "Triggered by Jaw Clench!"}))
         except:
             pass
-    # We don't call ask_ollama directly here to avoid circular logic, 
-    # but we can simulate the button click or have the UI handle it.
 
 # --- WebSocket Broadcasting ---
 
@@ -190,6 +214,7 @@ async def internal_simulator():
 
 @app.on_event("startup")
 async def startup_event():
+    load_baselines()
     # Setup OSC Dispatcher
     dispatcher = Dispatcher()
     dispatcher.map("/muse/eeg", eeg_handler)
@@ -217,6 +242,10 @@ async def startup_event():
     
     print(f"OSC Server listening on {ip}:{port_osc}")
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    save_baselines()
+
 @app.get("/")
 async def get():
     return HTMLResponse(content=open("index.html").read())
@@ -243,7 +272,11 @@ async def websocket_raw_endpoint(websocket: WebSocket):
 
 @app.get("/status")
 async def status():
-    return {**current_state.model_dump(), "recording": recording_active}
+    return {
+        **current_state.model_dump(), 
+        "recording": recording_active,
+        "baselines": baselines
+    }
 
 @app.post("/recording/start")
 async def start_recording():
@@ -274,7 +307,8 @@ async def stop_recording():
     file_handle.close()
     file_handle = None
     csv_writer = None
-    print("Stopped recording")
+    save_baselines() # Update baselines at end of recording session
+    print("Stopped recording & updated baselines")
     return {"status": "recording stopped"}
 
 # --- Ollama Integration ---
@@ -287,13 +321,20 @@ async def ask_ollama(prompt_extra: str = ""):
         "Theta": get_trend("theta")
     }
     
+    # Calculate deviation from baseline
+    deviations = {}
+    for k in baselines:
+        current_val = getattr(current_state, k)
+        baseline_val = baselines[k]
+        percent_diff = ((current_val - baseline_val) / baseline_val) * 100 if baseline_val != 0 else 0
+        deviations[k] = percent_diff
+
     system_prompt = f"The user's current cognitive state is: {current_state.cognitive_state}.\n"
     system_prompt += f"Recent Trends (last 60s):\n"
-    system_prompt += f"- Alpha (Calm): {trends['Alpha']}\n"
-    system_prompt += f"- Beta (Focus): {trends['Beta']}\n"
-    system_prompt += f"- Theta (Meditation): {trends['Theta']}\n"
-    system_prompt += "\nBased on these trends, provide a proactive biofeedback suggestion. "
-    system_prompt += "If focus is decreasing, suggest a quick way to re-engage. If calm is increasing, reinforce the behavior."
+    system_prompt += f"- Alpha: {trends['Alpha']} ({deviations['alpha']:.1f}% from baseline)\n"
+    system_prompt += f"- Beta: {trends['Beta']} ({deviations['beta']:.1f}% from baseline)\n"
+    system_prompt += f"- Theta: {trends['Theta']} ({deviations['theta']:.1f}% from baseline)\n"
+    system_prompt += "\nUse the baseline comparison to be more specific. If they are 'focused' but Beta is lower than their usual baseline, mention they might be reaching a more efficient flow state."
     
     response = ollama.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
     return {"response": response['response']}
