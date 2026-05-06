@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.dispatcher import Dispatcher
-import ollama
+from ollama import Client as OllamaClient
 
 app = FastAPI()
 
@@ -50,11 +50,17 @@ clench_count = 0
 baselines = {"alpha": 0.5, "beta": 0.5, "theta": 0.5, "gamma": 0.3}
 BASELINE_FILE = "baselines.json"
 
+# Ollama Client (Lazy initialized)
+ollama_client = None
+
 def load_baselines():
     global baselines
     if os.path.exists(BASELINE_FILE):
-        with open(BASELINE_FILE, "r") as f:
-            baselines = json.load(f)
+        try:
+            with open(BASELINE_FILE, "r") as f:
+                baselines = json.load(f)
+        except:
+            print("Error loading baselines.json, using defaults.")
 
 def save_baselines():
     # Calculate new baseline based on history if available
@@ -241,6 +247,7 @@ async def startup_event():
         asyncio.create_task(internal_simulator())
     
     print(f"OSC Server listening on {ip}:{port_osc}")
+    print(f"Using Ollama host: {app.state.ollama_host}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -275,7 +282,8 @@ async def status():
     return {
         **current_state.model_dump(), 
         "recording": recording_active,
-        "baselines": baselines
+        "baselines": baselines,
+        "ollama_host": app.state.ollama_host
     }
 
 @app.post("/recording/start")
@@ -307,7 +315,7 @@ async def stop_recording():
     file_handle.close()
     file_handle = None
     csv_writer = None
-    save_baselines() # Update baselines at end of recording session
+    save_baselines()
     print("Stopped recording & updated baselines")
     return {"status": "recording stopped"}
 
@@ -315,13 +323,16 @@ async def stop_recording():
 
 @app.post("/ask-ollama")
 async def ask_ollama(prompt_extra: str = ""):
+    global ollama_client
+    if ollama_client is None:
+        ollama_client = OllamaClient(host=app.state.ollama_host)
+
     trends = {
         "Alpha": get_trend("alpha"),
         "Beta": get_trend("beta"),
         "Theta": get_trend("theta")
     }
     
-    # Calculate deviation from baseline
     deviations = {}
     for k in baselines:
         current_val = getattr(current_state, k)
@@ -334,18 +345,23 @@ async def ask_ollama(prompt_extra: str = ""):
     system_prompt += f"- Alpha: {trends['Alpha']} ({deviations['alpha']:.1f}% from baseline)\n"
     system_prompt += f"- Beta: {trends['Beta']} ({deviations['beta']:.1f}% from baseline)\n"
     system_prompt += f"- Theta: {trends['Theta']} ({deviations['theta']:.1f}% from baseline)\n"
-    system_prompt += "\nUse the baseline comparison to be more specific. If they are 'focused' but Beta is lower than their usual baseline, mention they might be reaching a more efficient flow state."
+    system_prompt += "\nBased on these trends and baseline deviations, provide a proactive biofeedback suggestion."
     
-    response = ollama.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
-    return {"response": response['response']}
+    try:
+        response = ollama_client.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
+        return {"response": response['response']}
+    except Exception as e:
+        return {"response": f"Error contacting Ollama at {app.state.ollama_host}: {str(e)}"}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Muse Feedback Monitor Backend")
     parser.add_argument("--mock", action="store_true", help="Run with internal mock data simulator")
     parser.add_argument("--port", type=int, default=8000, help="Web server port")
+    parser.add_argument("--ollama-host", type=str, default=os.getenv("OLLAMA_HOST", "http://localhost:11434"), help="Ollama server URL")
     args = parser.parse_args()
     
     app.state.mock_mode = args.mock
+    app.state.ollama_host = args.ollama_host
     
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=args.port)
