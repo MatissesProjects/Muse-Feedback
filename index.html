@@ -130,11 +130,19 @@
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div>
                     <h3 style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.5rem 0;">Accelerometer (G)</h3>
-                    <div style="font-family: monospace; font-size: 0.9rem; color: #38bdf8;" id="acc-val">0.00, 0.00, 0.00</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: #38bdf8; display: flex; flex-direction: column;">
+                        <span>X: <span id="acc-x">0.00</span></span>
+                        <span>Y: <span id="acc-y">0.00</span></span>
+                        <span>Z: <span id="acc-z">0.00</span></span>
+                    </div>
                 </div>
                 <div>
                     <h3 style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.5rem 0;">Gyroscope (deg/s)</h3>
-                    <div style="font-family: monospace; font-size: 0.9rem; color: #facc15;" id="gyro-val">0.00, 0.00, 0.00</div>
+                    <div style="font-family: monospace; font-size: 0.85rem; color: #facc15; display: flex; flex-direction: column;">
+                        <span>X: <span id="gyro-x">0.00</span></span>
+                        <span>Y: <span id="gyro-y">0.00</span></span>
+                        <span>Z: <span id="gyro-z">0.00</span></span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -279,8 +287,16 @@
             updateIndicator('clench-indicator', data.jaw_clench);
             
             // Update Motion Data
-            if (data.acc) document.getElementById('acc-val').innerText = data.acc.map(v => v.toFixed(2)).join(', ');
-            if (data.gyro) document.getElementById('gyro-val').innerText = data.gyro.map(v => v.toFixed(2)).join(', ');
+            if (data.acc) {
+                document.getElementById('acc-x').innerText = data.acc[0].toFixed(2);
+                document.getElementById('acc-y').innerText = data.acc[1].toFixed(2);
+                document.getElementById('acc-z').innerText = data.acc[2].toFixed(2);
+            }
+            if (data.gyro) {
+                document.getElementById('gyro-x').innerText = data.gyro[0].toFixed(2);
+                document.getElementById('gyro-y').innerText = data.gyro[1].toFixed(2);
+                document.getElementById('gyro-z').innerText = data.gyro[2].toFixed(2);
+            }
 
             updateBar('alpha', data.alpha);
             updateBar('beta', data.beta);
