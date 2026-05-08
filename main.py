@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from pythonosc.osc_server import AsyncIOOSCUDPServer
 from pythonosc.dispatcher import Dispatcher
-from ollama import Client as OllamaClient
+from ollama import AsyncClient as OllamaAsyncClient
 
 app = FastAPI()
 
@@ -101,27 +101,42 @@ def get_trend(band_name: str) -> str:
 
 def update_cognitive_state():
     """
-    Heuristic to map brainwaves to cognitive states.
-    Alpha: Relaxed (7.5-13Hz)
-    Beta: Alert/Focused (13-30Hz)
-    Theta: Deep relaxation/Meditation (4-8Hz)
-    Gamma: Peak focus/Insight (30-44Hz)
+    Heuristic to map brainwaves to cognitive states based on latest research.
+    Delta (0.5-4Hz): Deep sleep, restorative.
+    Theta (4-8Hz): Deep relaxation, visualization, creativity.
+    Alpha (8-13Hz): Relaxed alertness, calm, bridge between conscious/subconscious.
+    Beta (13-32Hz): Active thinking, focus, problem-solving.
+    Gamma (32-100Hz): High-level processing, peak focus, insight.
     """
     # Calculate Ratio (Theta / Alpha)
-    # A ratio > 1.0 indicates 'crossover' into deep hypnagogia
     current_state.theta_alpha_ratio = current_state.theta / current_state.alpha if current_state.alpha > 0 else 0
     
-    # Priority: Alpha-Theta Crossover > Gamma (Peak) > Beta (Focused) > Alpha (Relaxed)
+    # Identify dominant band
+    bands = {
+        "Delta": current_state.delta,
+        "Theta": current_state.theta,
+        "Alpha": current_state.alpha,
+        "Beta": current_state.beta,
+        "Gamma": current_state.gamma
+    }
+    dominant_band = max(bands, key=bands.get)
+    
+    # Priority based on dominance and specific patterns
     if current_state.theta_alpha_ratio > 1.0 and current_state.theta > 0.5:
         current_state.cognitive_state = "Deep Meditation (Crossover)"
-    elif current_state.gamma > 0.6 and current_state.gamma > current_state.beta:
+    elif current_state.gamma > 0.5 and current_state.gamma > current_state.beta:
         current_state.cognitive_state = "Peak Focus (Flow)"
-    elif current_state.beta > current_state.alpha and current_state.beta > 0.4:
-        current_state.cognitive_state = "Focused / Alert"
-    elif current_state.alpha > current_state.beta and current_state.alpha > 0.5:
-        current_state.cognitive_state = "Relaxed / Calm"
-    elif current_state.theta > current_state.alpha and current_state.theta > 0.6:
-        current_state.cognitive_state = "Deeply Relaxed / Meditating"
+    elif dominant_band == "Beta":
+        if current_state.beta > 0.7:
+            current_state.cognitive_state = "High Alert / Focused"
+        else:
+            current_state.cognitive_state = "Active Thinking"
+    elif dominant_band == "Alpha":
+        current_state.cognitive_state = "Relaxed Alertness"
+    elif dominant_band == "Theta":
+        current_state.cognitive_state = "Deep Relaxation / Creative State"
+    elif dominant_band == "Delta":
+        current_state.cognitive_state = "Deep Rest / Sleep State"
     else:
         current_state.cognitive_state = "Neutral / Baseline"
 
@@ -261,8 +276,11 @@ async def shutdown_event():
     save_baselines()
 
 @app.get("/")
-async def get():
-    return HTMLResponse(content=open("index.html").read())
+async def read_index():
+    with open("index.html", "r", encoding="utf-8") as f:
+        content = f.read()
+    # Explicitly set the media type to ensure the browser renders it as HTML
+    return HTMLResponse(content=content, media_type="text/html")
 
 @app.websocket("/ws/data")
 async def websocket_endpoint(websocket: WebSocket):
@@ -332,7 +350,7 @@ async def stop_recording():
 async def ask_ollama(prompt_extra: str = ""):
     global ollama_client
     if ollama_client is None:
-        ollama_client = OllamaClient(host=app.state.ollama_host)
+        ollama_client = OllamaAsyncClient(host=app.state.ollama_host)
 
     trends = {
         "Alpha": get_trend("alpha"),
@@ -347,7 +365,17 @@ async def ask_ollama(prompt_extra: str = ""):
         percent_diff = ((current_val - baseline_val) / baseline_val) * 100 if baseline_val != 0 else 0
         deviations[k] = percent_diff
 
-    system_prompt = f"The user's current cognitive state is: {current_state.cognitive_state}.\n"
+    biofeedback_context = """
+    BRAINWAVE REFERENCE (2025-2026 Research):
+    - Delta (0.5-4Hz): Deep sleep, restorative. High delta while awake may indicate drowsiness or 'brain fog'.
+    - Theta (4-8Hz): Creativity, 'twilight' state. High theta/alpha ratio (>1.0) is the 'crossover' into deep meditation.
+    - Alpha (8-13Hz): Calm, ready. The 'bridge' between inner and outer worlds.
+    - Beta (13-32Hz): Logical, focused. 'High Beta' (>20Hz) often correlates with stress or over-analysis.
+    - Gamma (32-44Hz+): Integration of information, peak focus (Flow states).
+    """
+
+    system_prompt = f"{biofeedback_context}\n\n"
+    system_prompt += f"The user's current cognitive state is: {current_state.cognitive_state}.\n"
     system_prompt += f"Recent Trends (last 60s):\n"
     system_prompt += f"- Alpha: {trends['Alpha']} ({deviations['alpha']:.1f}% from baseline)\n"
     system_prompt += f"- Beta: {trends['Beta']} ({deviations['beta']:.1f}% from baseline)\n"
@@ -355,7 +383,7 @@ async def ask_ollama(prompt_extra: str = ""):
     system_prompt += "\nBased on these trends and baseline deviations, provide a proactive biofeedback suggestion."
     
     try:
-        response = ollama_client.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
+        response = await ollama_client.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
         return {"response": response['response']}
     except Exception as e:
         return {"response": f"Error contacting Ollama at {app.state.ollama_host}: {str(e)}"}
