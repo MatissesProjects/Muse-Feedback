@@ -100,12 +100,15 @@
         </div>
 
         <div class="card">
-            <h2>Artifacts</h2>
-            <div style="display: flex; gap: 1rem;">
-                <div id="blink-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.3s;">Blink</div>
-                <div id="clench-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.3s;">Clench</div>
+            <h2>Artifacts & Motion</h2>
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                <div id="blink-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.1s;">Blink</div>
+                <div id="clench-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.1s;">Clench</div>
             </div>
-            <p style="font-size: 0.8rem; color: #94a3b8; margin-top: 1rem;">Tip: Double-clench your jaw to trigger AI feedback hands-free.</p>
+            <div style="font-size: 0.8rem; color: #94a3b8;">
+                <div>Acc: <span id="acc-val">0.0, 0.0, 0.0</span></div>
+                <div>Gyro: <span id="gyro-val">0.0, 0.0, 0.0</span></div>
+            </div>
         </div>
 
         <div class="card" style="grid-column: span 3;">
@@ -172,8 +175,13 @@
             const data = msg;
             document.getElementById('cognitive-state').innerText = data.cognitive_state;
 
-            if (data.blink) flashIndicator('blink-indicator');
-            if (data.jaw_clench) flashIndicator('clench-indicator');
+            // Update Artifact Indicators
+            updateIndicator('blink-indicator', data.blink);
+            updateIndicator('clench-indicator', data.jaw_clench);
+            
+            // Update Motion Data
+            if (data.acc) document.getElementById('acc-val').innerText = data.acc.map(v => v.toFixed(2)).join(', ');
+            if (data.gyro) document.getElementById('gyro-val').innerText = data.gyro.map(v => v.toFixed(2)).join(', ');
 
             updateBar('alpha', data.alpha);
             updateBar('beta', data.beta);
@@ -227,6 +235,20 @@
             const el = document.getElementById(`${id}-diff`);
             el.innerText = `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
             el.style.color = diff > 0 ? '#4ade80' : '#fb7185';
+        }
+
+        function updateIndicator(id, active) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (active) {
+                el.style.background = '#38bdf8';
+                el.style.color = '#0f172a';
+                el.style.boxShadow = '0 0 10px #38bdf8';
+            } else {
+                el.style.background = '#334155';
+                el.style.color = '#f8fafc';
+                el.style.boxShadow = 'none';
+            }
         }
 
         function flashIndicator(id) {

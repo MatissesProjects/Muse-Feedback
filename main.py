@@ -30,6 +30,8 @@ class MuseState(BaseModel):
     jaw_clench: int = 0
     cognitive_state: str = "Unknown"
     theta_alpha_ratio: float = 0.0
+    acc: List[float] = [0.0, 0.0, 0.0]
+    gyro: List[float] = [0.0, 0.0, 0.0]
 
 # Global state
 current_state = MuseState()
@@ -157,25 +159,17 @@ def band_handler(address, *args):
 def horseshoe_handler(address, *args):
     current_state.horseshoe = list(args)
 
+def acc_handler(address, *args):
+    current_state.acc = list(args)
+
+def gyro_handler(address, *args):
+    current_state.gyro = list(args)
+
 def blink_handler(address, *args):
     current_state.blink = args[0]
 
 def clench_handler(address, *args):
-    global last_clench_time, clench_count
-    val = args[0]
-    current_state.jaw_clench = val
-    
-    if val == 1:
-        now = datetime.now().timestamp()
-        if now - last_clench_time < 0.8: # Double clench within 800ms
-            clench_count += 1
-            if clench_count >= 1: # Double clench detected
-                print("!!! Double Clench Detected - Triggering AI Feedback !!!")
-                asyncio.create_task(trigger_ai_feedback())
-                clench_count = 0
-        else:
-            clench_count = 0
-        last_clench_time = now
+    current_state.jaw_clench = args[0]
 
 async def trigger_ai_feedback():
     # Helper to broadcast a notification to the UI
@@ -252,6 +246,8 @@ async def startup_event():
     dispatcher.map("/muse/elements/beta_absolute", band_handler)
     dispatcher.map("/muse/elements/gamma_absolute", band_handler)
     dispatcher.map("/muse/elements/horseshoe", horseshoe_handler)
+    dispatcher.map("/muse/acc", acc_handler)
+    dispatcher.map("/muse/gyro", gyro_handler)
     dispatcher.map("/muse/elements/blink", blink_handler)
     dispatcher.map("/muse/elements/jaw_clench", clench_handler)
 
