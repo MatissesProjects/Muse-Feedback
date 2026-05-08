@@ -5,24 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Muse Feedback Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
-        .card { background: #1e293b; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #334155; }
-        h1 { margin-top: 0; color: #38bdf8; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; overflow-x: hidden; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; position: relative; z-index: 10; }
+        .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); padding: 1.5rem; border-radius: 0.75rem; border: 1px solid rgba(51, 65, 85, 0.4); }
+        #canvas-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+        h1 { margin-top: 0; color: #38bdf8; position: relative; z-index: 10; }
         h2 { margin-top: 0; font-size: 1.1rem; color: #94a3b8; }
         .state-highlight { font-size: 2rem; font-weight: bold; color: #facc15; margin: 1rem 0; }
         .bar-container { margin-bottom: 0.75rem; }
         .bar-label { display: flex; justify-content: space-between; margin-bottom: 0.25rem; font-size: 0.875rem; }
         .bar-bg { background: #334155; height: 12px; border-radius: 6px; overflow: hidden; }
         .bar-fill { background: #38bdf8; height: 100%; width: 0%; transition: width 0.1s ease; }
-        #ollama-response { background: #0f172a; padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; min-height: 3rem; font-style: italic; white-space: pre-wrap; }
+        #ollama-response { background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; min-height: 3rem; font-style: italic; white-space: pre-wrap; }
+        .suggestion-item { background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 0.75rem; border-radius: 0.5rem; margin-top: 0.5rem; transition: transform 0.2s; cursor: pointer; }
+        .suggestion-item:hover { transform: scale(1.02); background: rgba(56, 189, 248, 0.2); }
         button { background: #38bdf8; color: #0f172a; border: none; padding: 0.5rem 1rem; border-radius: 0.375rem; cursor: pointer; font-weight: bold; }
         button:hover { background: #0ea5e9; }
         .chart-container { margin-top: 2rem; height: 300px; position: relative; }
     </style>
 </head>
 <body>
+    <div id="canvas-container"></div>
     <h1>Muse Feedback Monitor</h1>
     
     <div class="grid">
@@ -30,6 +35,10 @@
             <h2>Current Cognitive State</h2>
             <div id="cognitive-state" class="state-highlight">Waiting for data...</div>
             <div id="horseshoe">Signal: ...</div>
+            <div style="margin-top: 1rem; border-top: 1px solid rgba(51, 65, 85, 0.5); padding-top: 1rem;">
+                <h3 style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.5rem 0;">Session Flow Score</h3>
+                <div id="flow-score" style="font-size: 1.5rem; font-weight: bold; color: #4ade80;">0</div>
+            </div>
         </div>
 
         <div class="card">
@@ -69,6 +78,10 @@
                 <div class="bar-label"><span>Theta (Deep)</span><span id="theta-val">0.00</span></div>
                 <div class="bar-bg"><div id="theta-bar" class="bar-fill" style="background: #a78bfa;"></div></div>
             </div>
+            <div class="bar-container">
+                <div class="bar-label"><span>Delta (Sleep)</span><span id="delta-val">0.00</span></div>
+                <div class="bar-bg"><div id="delta-bar" class="bar-fill" style="background: #94a3b8;"></div></div>
+            </div>
         </div>
 
         <div class="card">
@@ -87,6 +100,7 @@
                 <div class="bar-label"><span>Alpha Diff</span><span id="alpha-diff">0.0%</span></div>
                 <div class="bar-label"><span>Beta Diff</span><span id="beta-diff">0.0%</span></div>
                 <div class="bar-label"><span>Theta Diff</span><span id="theta-diff">0.0%</span></div>
+                <div class="bar-label"><span>Delta Diff</span><span id="delta-diff">0.0%</span></div>
             </div>
             <p style="font-size: 0.75rem; margin-top: 1rem;">Baselines are updated automatically at the end of each recording session.</p>
         </div>
@@ -100,14 +114,28 @@
         </div>
 
         <div class="card">
-            <h2>Artifacts & Motion</h2>
-            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                <div id="blink-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.1s;">Blink</div>
-                <div id="clench-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.1s;">Clench</div>
+            <h2>AI Tool Suggestions</h2>
+            <div id="suggestions-bin" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <p style="font-size: 0.8rem; color: #94a3b8;">AI suggested tools will appear here.</p>
             </div>
-            <div style="font-size: 0.8rem; color: #94a3b8;">
-                <div>Acc: <span id="acc-val">0.0, 0.0, 0.0</span></div>
-                <div>Gyro: <span id="gyro-val">0.0, 0.0, 0.0</span></div>
+        </div>
+
+        <div class="card">
+            <h2>Artifacts & Motion</h2>
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                <div id="blink-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.1s; flex: 1; text-align: center;">Blink</div>
+                <div id="clench-indicator" style="padding: 0.5rem; background: #334155; border-radius: 0.25rem; transition: background 0.1s; flex: 1; text-align: center;">Clench</div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div>
+                    <h3 style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.5rem 0;">Accelerometer (G)</h3>
+                    <div style="font-family: monospace; font-size: 0.9rem; color: #38bdf8;" id="acc-val">0.00, 0.00, 0.00</div>
+                </div>
+                <div>
+                    <h3 style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.5rem 0;">Gyroscope (deg/s)</h3>
+                    <div style="font-family: monospace; font-size: 0.9rem; color: #facc15;" id="gyro-val">0.00, 0.00, 0.00</div>
+                </div>
             </div>
         </div>
 
@@ -123,8 +151,71 @@
     </div>
 
     <script>
-        const ctx = document.getElementById('brainwaveChart').getContext('2d');
-        const chart = new Chart(ctx, {
+        // --- Three.js Visualization ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        container.appendChild(renderer.domElement);
+
+        const particlesGeometry = new THREE.BufferGeometry();
+        const particlesCount = 3000;
+        const posArray = new Float32Array(particlesCount * 3);
+
+        for(let i = 0; i < particlesCount * 3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 10;
+        }
+
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const material = new THREE.PointsMaterial({
+            size: 0.015,
+            color: '#38bdf8',
+            transparent: true,
+            opacity: 0.6
+        });
+
+        const particlesMesh = new THREE.Points(particlesGeometry, material);
+        scene.add(particlesMesh);
+        camera.position.z = 5;
+
+        let flowScore = 0;
+        let brainwaveData = { alpha: 0, beta: 0, theta: 0, gamma: 0, delta: 0 };
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Map brainwaves to visual parameters
+            particlesMesh.rotation.y += 0.001 + (brainwaveData.beta * 0.01);
+            particlesMesh.rotation.x += 0.0005 + (brainwaveData.theta * 0.005);
+            
+            const positions = particlesGeometry.attributes.position.array;
+            for (let i = 0; i < particlesCount; i++) {
+                const i3 = i * 3;
+                // Ripple effect based on Delta
+                positions[i3 + 1] += Math.sin(Date.now() * 0.001 + positions[i3]) * (brainwaveData.delta * 0.005);
+            }
+            particlesGeometry.attributes.position.needsUpdate = true;
+            
+            // State-Based Colors
+            if (brainwaveData.gamma > 0.5) material.color.lerp(new THREE.Color('#f472b6'), 0.05); // Gamma Flow
+            else if (brainwaveData.alpha > 0.5) material.color.lerp(new THREE.Color('#38bdf8'), 0.05); // Alpha Calm
+            else if (brainwaveData.beta > 0.5) material.color.lerp(new THREE.Color('#fb7185'), 0.05); // Beta Alert
+            else material.color.lerp(new THREE.Color('#94a3b8'), 0.01); // Neutral
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // --- Chart & Data Logic ---
+        const brainwaveCtx = document.getElementById('brainwaveChart').getContext('2d');
+        const chart = new Chart(brainwaveCtx, {
             type: 'line',
             data: {
                 labels: [],
@@ -132,7 +223,8 @@
                     { label: 'Alpha', borderColor: '#38bdf8', data: [], tension: 0.4, pointRadius: 0 },
                     { label: 'Beta', borderColor: '#fb7185', data: [], tension: 0.4, pointRadius: 0 },
                     { label: 'Theta', borderColor: '#a78bfa', data: [], tension: 0.4, pointRadius: 0 },
-                    { label: 'Gamma', borderColor: '#f472b6', data: [], tension: 0.4, pointRadius: 0 }
+                    { label: 'Gamma', borderColor: '#f472b6', data: [], tension: 0.4, pointRadius: 0 },
+                    { label: 'Delta', borderColor: '#94a3b8', data: [], tension: 0.4, pointRadius: 0 }
                 ]
             },
             options: {
@@ -148,7 +240,7 @@
 
         const ws = new WebSocket(`ws://${window.location.host}/ws/data`);
         const maxPoints = 100;
-        let baselines = { alpha: 0.5, beta: 0.5, theta: 0.5 };
+        let baselines = { alpha: 0.5, beta: 0.5, theta: 0.5, delta: 0.5 };
 
         async function fetchStatus() {
             try {
@@ -173,6 +265,13 @@
             }
 
             const data = msg;
+            brainwaveData = data; // Sync with 3D engine
+            
+            // Gamification: Update Flow Score
+            if (data.gamma > 0.5) flowScore += 0.1;
+            if (data.theta_alpha_ratio > 1.0 && data.theta > 0.5) flowScore += 0.05;
+            document.getElementById('flow-score').innerText = Math.floor(flowScore);
+
             document.getElementById('cognitive-state').innerText = data.cognitive_state;
 
             // Update Artifact Indicators
@@ -187,10 +286,12 @@
             updateBar('beta', data.beta);
             updateBar('theta', data.theta);
             updateBar('gamma', data.gamma);
+            updateBar('delta', data.delta);
 
             updateDiff('alpha', data.alpha);
             updateDiff('beta', data.beta);
             updateDiff('theta', data.theta);
+            updateDiff('delta', data.delta);
 
             // Update Ratio Bar
             const ratioVal = data.theta_alpha_ratio || 0;
@@ -212,6 +313,7 @@
             chart.data.datasets[1].data.push(data.beta);
             chart.data.datasets[2].data.push(data.theta);
             chart.data.datasets[3].data.push(data.gamma);
+            chart.data.datasets[4].data.push(data.delta);
 
             if (chart.data.labels.length > maxPoints) {
                 chart.data.labels.shift();
@@ -225,16 +327,20 @@
 
         function updateBar(id, val) {
             const percentage = Math.min(Math.max(val * 50, 0), 100);
-            document.getElementById(`${id}-bar`).style.width = `${percentage}%`;
-            document.getElementById(`${id}-val`).innerText = val.toFixed(2);
+            const el = document.getElementById(`${id}-bar`);
+            if (el) el.style.width = `${percentage}%`;
+            const valEl = document.getElementById(`${id}-val`);
+            if (valEl) valEl.innerText = val.toFixed(2);
         }
 
         function updateDiff(id, val) {
             const base = baselines[id] || 0.5;
             const diff = ((val - base) / base) * 100;
             const el = document.getElementById(`${id}-diff`);
-            el.innerText = `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
-            el.style.color = diff > 0 ? '#4ade80' : '#fb7185';
+            if (el) {
+                el.innerText = `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%`;
+                el.style.color = diff > 0 ? '#4ade80' : '#fb7185';
+            }
         }
 
         function updateIndicator(id, active) {
@@ -249,17 +355,6 @@
                 el.style.color = '#f8fafc';
                 el.style.boxShadow = 'none';
             }
-        }
-
-        function flashIndicator(id) {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.style.background = '#38bdf8';
-            el.style.color = '#0f172a';
-            setTimeout(() => { 
-                el.style.background = '#334155'; 
-                el.style.color = '#f8fafc';
-            }, 300);
         }
 
         let audioEnabled = false;
@@ -316,7 +411,9 @@
             data: { labels: [], datasets: [
                 { label: 'Alpha', borderColor: '#38bdf8', data: [], tension: 0.1, pointRadius: 0 },
                 { label: 'Beta', borderColor: '#fb7185', data: [], tension: 0.1, pointRadius: 0 },
-                { label: 'Theta', borderColor: '#a78bfa', data: [], tension: 0.1, pointRadius: 0 }
+                { label: 'Theta', borderColor: '#a78bfa', data: [], tension: 0.1, pointRadius: 0 },
+                { label: 'Gamma', borderColor: '#f472b6', data: [], tension: 0.1, pointRadius: 0 },
+                { label: 'Delta', borderColor: '#94a3b8', data: [], tension: 0.1, pointRadius: 0 }
             ]},
             options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { min: 0, max: 2 } }, plugins: { legend: { labels: { color: '#f8fafc' } } } }
         });
@@ -327,7 +424,7 @@
                 const files = await response.json();
                 const list = document.getElementById('session-list');
                 list.innerHTML = files.map(f => `
-                    <div class="session-item" onclick="viewSession('${f}')" style="cursor: pointer; background: #1e293b; padding: 0.5rem; border-radius: 0.25rem; border: 1px solid #334155;">
+                    <div class="session-item" onclick="viewSession('${f}')" style="cursor: pointer; background: rgba(30, 41, 59, 0.6); padding: 0.5rem; border-radius: 0.25rem; border: 1px solid #334155;">
                         ${f}
                     </div>
                 `).join('') || "No sessions found.";
@@ -346,6 +443,8 @@
                 historyChart.data.datasets[0].data = data.map(d => d.alpha);
                 historyChart.data.datasets[1].data = data.map(d => d.beta);
                 historyChart.data.datasets[2].data = data.map(d => d.theta);
+                historyChart.data.datasets[3].data = data.map(d => d.gamma);
+                historyChart.data.datasets[4].data = data.map(d => d.delta);
                 historyChart.update();
             } catch (e) {
                 alert("Error loading session data.");
@@ -355,18 +454,51 @@
         async function askOllama() {
             const btn = document.querySelector('button');
             const respDiv = document.getElementById('ollama-response');
+            const bin = document.getElementById('suggestions-bin');
             btn.disabled = true;
             respDiv.innerText = "Thinking...";
             try {
                 const response = await fetch('/ask-ollama', { method: 'POST' });
                 const data = await response.json();
-                respDiv.innerText = data.response;
-                speak(data.response);
+                let fullText = data.response;
+                
+                // Parse Suggestions
+                const toolRegex = /<suggested_tool>(.*?)<\/suggested_tool>/g;
+                let match;
+                while ((match = toolRegex.exec(fullText)) !== null) {
+                    const [name, desc, logic] = match[1].split('|');
+                    addSuggestion(name, desc, logic);
+                }
+                
+                // Clean response text
+                const cleanText = fullText.replace(/<suggested_tool>.*?<\/suggested_tool>/g, '').trim();
+                respDiv.innerText = cleanText;
+                speak(cleanText);
             } catch (e) {
                 respDiv.innerText = "Error contacting Ollama service.";
             } finally {
                 btn.disabled = false;
             }
+        }
+
+        function addSuggestion(name, desc, logic) {
+            const bin = document.getElementById('suggestions-bin');
+            // Remove placeholder if present
+            if (bin.querySelector('p')) bin.innerHTML = '';
+            
+            const item = document.createElement('div');
+            item.className = 'suggestion-item';
+            item.innerHTML = `
+                <div style="font-weight: bold; color: #38bdf8;">${name}</div>
+                <div style="font-size: 0.85rem; color: #94a3b8;">${desc}</div>
+                <button onclick="buildTool('${name}', '${logic.replace(/'/g, "\\'")}')" style="margin-top: 0.5rem; font-size: 0.75rem; padding: 0.25rem 0.5rem;">Build Suggestion</button>
+            `;
+            bin.prepend(item);
+        }
+
+        function buildTool(name, logic) {
+            alert(`Building dynamic tool: ${name}\nLogic provided: ${logic}\n\n(Dynamic UI insertion placeholder active)`);
+            // Here we could dynamically inject a new card/widget based on the logic
         }
     </script>
 </body>

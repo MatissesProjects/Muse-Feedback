@@ -229,6 +229,8 @@ async def internal_simulator():
         current_state.delta = max(0, min(1.5, current_state.delta + random.uniform(-0.1, 0.1)))
         current_state.gamma = max(0, min(1.5, current_state.gamma + random.uniform(-0.05, 0.05)))
         current_state.horseshoe = [1.0, 1.0, 1.0, 1.0]
+        current_state.acc = [random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1)]
+        current_state.gyro = [random.uniform(-100, 100), random.uniform(-100, 100), random.uniform(-100, 100)]
         update_cognitive_state()
         await asyncio.sleep(0.1)
 
@@ -376,7 +378,9 @@ async def ask_ollama(prompt_extra: str = ""):
     system_prompt += f"- Alpha: {trends['Alpha']} ({deviations['alpha']:.1f}% from baseline)\n"
     system_prompt += f"- Beta: {trends['Beta']} ({deviations['beta']:.1f}% from baseline)\n"
     system_prompt += f"- Theta: {trends['Theta']} ({deviations['theta']:.1f}% from baseline)\n"
-    system_prompt += "\nBased on these trends and baseline deviations, provide a proactive biofeedback suggestion."
+    system_prompt += "\nBased on these trends, provide a biofeedback suggestion."
+    system_prompt += "\nIf a specific digital tool or UI widget would help (e.g., a timer, a breathing guide, a focus block), define it at the end of your response using this tag:"
+    system_prompt += "\n<suggested_tool>Tool Name|Brief Description|Functional Logic/Instruction</suggested_tool>"
     
     try:
         response = await ollama_client.generate(model='gemma4:e4b', prompt=f"{system_prompt}\n\nUser Message: {prompt_extra}")
