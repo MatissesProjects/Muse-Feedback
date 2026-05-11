@@ -1,9 +1,10 @@
-import asyncio
+﻿import asyncio
 import json
 import argparse
 import statistics
 import csv
 import os
+import websockets
 from datetime import datetime
 from collections import deque
 from typing import Dict, List, Optional
@@ -29,6 +30,7 @@ class MuseState(BaseModel):
     blink: int = 0
     jaw_clench: int = 0
     cognitive_state: str = "Unknown"
+    stress_index: float = 0.0
     theta_alpha_ratio: float = 0.0
     acc: List[float] = [0.0, 0.0, 0.0]
     gyro: List[float] = [0.0, 0.0, 0.0]
@@ -113,6 +115,12 @@ def update_cognitive_state():
     # Calculate Ratio (Theta / Alpha)
     current_state.theta_alpha_ratio = current_state.theta / current_state.alpha if current_state.alpha > 0 else 0
     
+    # Calculate Stress Index (Beta / Alpha)
+    if current_state.alpha > 0.01:
+        current_state.stress_index = current_state.beta / current_state.alpha
+    else:
+        current_state.stress_index = 0.0
+
     # Identify dominant band
     bands = {
         "Delta": current_state.delta,
@@ -234,6 +242,33 @@ async def internal_simulator():
         update_cognitive_state()
         await asyncio.sleep(0.1)
 
+# --- Biome Hub Streaming ---
+
+async def biome_worker():
+    """
+    Background task to stream data to Biome Hub (Socket.io-compatible WebSocket).
+    """
+    uri = getattr(app.state, "biome_uri", None)
+    if not uri:
+        return
+        
+    print(f"Biome: Connecting to {uri}...")
+    while True:
+        try:
+            async with websockets.connect(uri) as websocket:
+                print(f"Biome: Streaming active to {uri}")
+                while True:
+                    payload = {
+                        "project": "muse",
+                        "data": current_state.model_dump()
+                    }
+                    # Send as a Socket.io-compatible raw event frame
+                    await websocket.send(f'42["telemetry",{json.dumps(payload)}]')
+                    await asyncio.sleep(0.1)  # 10Hz
+        except Exception as e:
+            # Retry after delay, silence errors to avoid console flood
+            await asyncio.sleep(5)
+
 # --- FastAPI Routes ---
 
 @app.on_event("startup")
@@ -266,8 +301,13 @@ async def startup_event():
     if getattr(app.state, "mock_mode", False):
         asyncio.create_task(internal_simulator())
     
+    # Start Biome Hub Streamer
+    asyncio.create_task(biome_worker())
+    
     print(f"OSC Server listening on {ip}:{port_osc}")
     print(f"Using Ollama host: {app.state.ollama_host}")
+    if getattr(app.state, "biome_uri", None):
+        print(f"Biome Hub streaming enabled: {app.state.biome_uri}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -306,7 +346,8 @@ async def status():
         **current_state.model_dump(), 
         "recording": recording_active,
         "baselines": baselines,
-        "ollama_host": app.state.ollama_host
+        "ollama_host": app.state.ollama_host,
+        "biome_uri": getattr(app.state, "biome_uri", None)
     }
 
 @app.post("/recording/start")
@@ -416,10 +457,12 @@ if __name__ == "__main__":
     parser.add_argument("--mock", action="store_true", help="Run with internal mock data simulator")
     parser.add_argument("--port", type=int, default=8000, help="Web server port")
     parser.add_argument("--ollama-host", type=str, default=os.getenv("OLLAMA_HOST", "http://localhost:11434"), help="Ollama server URL")
+    parser.add_argument("--biome-uri", type=str, default=os.getenv("BIOME_HUB_URI", "ws://localhost:3000"), help="Biome Hub WebSocket URI")
     args = parser.parse_args()
     
     app.state.mock_mode = args.mock
     app.state.ollama_host = args.ollama_host
+    app.state.biome_uri = args.biome_uri
     
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=args.port)
